@@ -1,0 +1,57 @@
+# ─── Web Framework ───────────────────────────────────────────────────────────
+fastapi==0.136.1
+uvicorn==0.46.0
+python-multipart==0.0.9
+
+# ─── Config ──────────────────────────────────────────────────────────────────
+pydantic==2.7.1
+pydantic-settings==2.3.1
+python-dotenv==1.2.2
+
+# ─── Supabase ────────────────────────────────────────────────────────────────
+supabase==2.5.0
+
+# ─── GCP Cloud Storage ───────────────────────────────────────────────────────
+google-cloud-storage==2.17.0
+
+# ─── AI / LLM ────────────────────────────────────────────────────────────────
+# Google Gemini — clip selection, metadata generation, viral moment detection
+google-genai==1.75.0
+
+# ─── Video Processing (OpenShorts stack) ─────────────────────────────────────
+# Transcription (faster & more accurate than openai-whisper)
+faster-whisper==1.2.1
+
+# Scene Detection
+scenedetect==0.7
+
+# Face tracking — MediaPipe (lightweight, CPU-friendly)
+mediapipe==0.10.14
+
+# Person detection fallback — YOLOv8
+ultralytics==8.4.46
+torch==2.11.0
+torchvision==0.26.0
+
+# Computer Vision
+opencv-python-headless==4.10.0.84
+
+# Progress bars (used internally by OpenShorts pipeline)
+tqdm==4.67.3
+
+# YouTube download (for URL-based video input)
+yt-dlp
+
+# ─── Image processing ────────────────────────────────────────────────────────
+Pillow==10.3.0
+
+# ─── Storage ─────────────────────────────────────────────────────────────────
+# boto3 kept as optional alternative (OpenShorts uses S3 natively)
+boto3==1.43.4
+
+# ─── Utilities ───────────────────────────────────────────────────────────────
+httpx==0.27.0
+aiofiles==23.2.1
+tenacity==8.3.0
+structlog==24.2.0
+numpy==1.26.4

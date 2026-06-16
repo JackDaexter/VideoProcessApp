@@ -1,0 +1,54 @@
+"""
+app/routers/ai_shorts.py — POST /api/ai-shorts endpoint.
+"""
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, BackgroundTasks, Depends
+
+from app.auth import require_api_key
+from app.db.supabase import create_job
+from app.models.requests import AIShortsRequest
+from app.models.responses import JobCreatedResponse, JobStatus, JobType
+from app.services.shorts_service import run_ai_shorts
+
+router = APIRouter(prefix="/api", tags=["AI Shorts"])
+
+
+@router.post(
+    "/ai-shorts",
+    response_model=JobCreatedResponse,
+    status_code=202,
+    summary="Generate a vertical AI short from a video",
+    description=(
+        "Submit a video to generate a vertical 9:16 short (Reels/TikTok/YouTube Shorts style). "
+        "Includes scene detection, caption burning, and automatic reformatting. "
+        "Poll GET /api/jobs/{job_id} for status and download URL."
+    ),
+)
+async def ai_shorts(
+    request: AIShortsRequest,
+    background_tasks: BackgroundTasks,
+    _api_key: str = Depends(require_api_key),
+) -> JobCreatedResponse:
+    """
+    Create an AI Shorts generation job.
+
+    - **video_url**: GCS URI of the source video (gs://bucket/path)
+    - **prompt**: Guidance for which content to include in the short
+    - **options**: target_duration, add_captions, aspect_ratio
+    """
+    job = await create_job(
+        job_type=JobType.AI_SHORTS,
+        input_url=request.video_url,
+        prompt=request.prompt,
+        options=request.options.model_dump(),
+    )
+
+    background_tasks.add_task(run_ai_shorts, job["id"], request)
+
+    return JobCreatedResponse(
+        job_id=job["id"],
+        status=JobStatus.PENDING,
+        created_at=datetime.now(timezone.utc),
+    )

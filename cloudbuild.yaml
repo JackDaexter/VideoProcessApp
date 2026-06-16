@@ -1,0 +1,81 @@
+# ────────────────────────────────────────────────────────────────────────────
+# cloudbuild.yaml — GCP Cloud Build CI/CD pipeline
+#
+# Triggered on push to main branch (configure in Cloud Build triggers UI).
+# Steps:
+#   1. Build Docker image
+#   2. Push to Google Container Registry
+#   3. Deploy to Cloud Run
+# ────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  _SERVICE_NAME: video-process-app
+  _REGION: us-central1
+  _IMAGE: gcr.io/$PROJECT_ID/${_SERVICE_NAME}
+
+steps:
+  # ── Step 1: Build the Docker image ──────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build"
+    args:
+      - build
+      - --tag
+      - "${_IMAGE}:${SHORT_SHA}"
+      - --tag
+      - "${_IMAGE}:latest"
+      - --cache-from
+      - "${_IMAGE}:latest"
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - .
+
+  # ── Step 2: Push to Container Registry ──────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push"
+    args:
+      - push
+      - "--all-tags"
+      - "${_IMAGE}"
+    waitFor: ["build"]
+
+  # ── Step 3: Deploy to Cloud Run ──────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "deploy"
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - "${_SERVICE_NAME}"
+      - --image
+      - "${_IMAGE}:${SHORT_SHA}"
+      - --platform
+      - managed
+      - --region
+      - "${_REGION}"
+      - --memory
+      - "4Gi"
+      - --cpu
+      - "2"
+      - --timeout
+      - "3600"
+      - --concurrency
+      - "4"
+      - --min-instances
+      - "0"
+      - --max-instances
+      - "10"
+      - --set-secrets
+      - "API_KEY=video-process-api-key:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_KEY=supabase-service-key:latest"
+      - --set-env-vars
+      - "GCP_PROJECT_ID=$PROJECT_ID,GCP_BUCKET_NAME=${_SERVICE_NAME}-videos,APP_ENV=production,WHISPER_MODEL=base"
+      - --service-account
+      - "video-process-sa@$PROJECT_ID.iam.gserviceaccount.com"
+    waitFor: ["push"]
+
+images:
+  - "${_IMAGE}:${SHORT_SHA}"
+  - "${_IMAGE}:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8

@@ -51,13 +51,13 @@ ASPECT_RATIO = 9 / 16  # Vertical 9:16 for Shorts/Reels/TikTok
 GEMINI_CLIP_PROMPT = """\
 You are a senior short-form video editor. Read the ENTIRE transcript and word-level timestamps \
 to choose the 3–15 MOST VIRAL moments for TikTok/IG Reels/YouTube Shorts. \
-Each clip must be between 15 and 60 seconds long.
+Each clip must be between {min_duration} and {max_duration} seconds long.
 
 ⚠️ FFMPEG TIME CONTRACT — STRICT REQUIREMENTS:
 - Return timestamps in ABSOLUTE SECONDS from the start of the video.
 - Only NUMBERS with decimal point, up to 3 decimals (examples: 0, 1.250, 17.350).
 - Ensure 0 ≤ start < end ≤ VIDEO_DURATION_SECONDS.
-- Each clip between 15 and 60 s (inclusive).
+- Each clip between {min_duration} and {max_duration} s (inclusive).
 - Prefer starting 0.2–0.4 s BEFORE the hook and ending 0.2–0.4 s AFTER the payoff.
 - Use silence moments for natural cuts; never cut in the middle of a word or phrase.
 - STRICTLY FORBIDDEN to use time formats other than absolute seconds.
@@ -75,7 +75,7 @@ USER PROMPT (use this to bias clip selection):
 
 STRICT EXCLUSIONS:
 - No generic intros/outros or purely sponsorship segments unless they contain the hook.
-- No clips < 15 s or > 60 s.
+- No clips < {min_duration} s or > {max_duration} s.
 
 OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments):
 {{
@@ -134,8 +134,12 @@ def get_whisper_model() -> WhisperModel:
 def get_yolo_model() -> Any:
     global _yolo_model
     if _yolo_model is None:
-        log.info("yolo_loading")
-        _yolo_model = YOLO("yolov8n.pt")
+        # Load from the absolute path baked into the Docker image at build time.
+        # YOLO_MODEL_PATH is set in the Dockerfile to /app/models/yolov8n.pt,
+        # so ultralytics loads the file directly — no download is ever attempted.
+        model_path = os.environ.get("YOLO_MODEL_PATH", "/app/models/yolov8n.pt")
+        log.info("yolo_loading", path=model_path)
+        _yolo_model = YOLO(model_path)
         log.info("yolo_loaded")
     return _yolo_model
 
@@ -333,29 +337,43 @@ async def transcribe_video(video_path: str) -> Dict[str, Any]:
 
     def _run() -> Dict[str, Any]:
         model = get_whisper_model()
-        segments, info = model.transcribe(
-            video_path,
-            language="en",
-            word_timestamps=True,
-            beam_size=5,
-        )
-        full_text = ""
-        all_segments = []
-        all_words = []
+        try:
+            segments, info = model.transcribe(
+                video_path,
+                language="en",
+                word_timestamps=True,
+                beam_size=5,
+            )
+            full_text = ""
+            all_segments = []
+            all_words = []
 
-        for seg in segments:
-            full_text += seg.text
-            seg_dict = {"start": seg.start, "end": seg.end, "text": seg.text}
-            all_segments.append(seg_dict)
-            if seg.words:
-                for w in seg.words:
-                    all_words.append({"w": w.word.strip(), "s": round(w.start, 3), "e": round(w.end, 3)})
+            for seg in segments:
+                full_text += seg.text
+                seg_dict = {"start": seg.start, "end": seg.end, "text": seg.text}
+                all_segments.append(seg_dict)
+                if seg.words:
+                    for w in seg.words:
+                        all_words.append({"w": w.word.strip(), "s": round(w.start, 3), "e": round(w.end, 3)})
 
-        return {"text": full_text.strip(), "segments": all_segments, "words": all_words}
+            return {"text": full_text.strip(), "segments": all_segments, "words": all_words}
+        except IndexError as exc:
+            # faster-whisper raises "IndexError: tuple index out of range" via PyAV
+            # if the video has no audio track or the audio track is unreadable.
+            log.error("transcribe_failed_no_audio", path=video_path, error=str(exc))
+            raise ValueError(
+                "No valid audio track found in the video. Please verify that the input video has sound."
+            ) from exc
 
-    result = await asyncio.get_event_loop().run_in_executor(None, _run)
-    log.info("transcribe_done", segments=len(result["segments"]), words=len(result["words"]))
-    return result
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(None, _run)
+        log.info("transcribe_done", segments=len(result["segments"]), words=len(result["words"]))
+        return result
+    except ValueError as exc:
+        raise exc
+    except Exception as exc:
+        log.error("transcribe_failed_unexpected", path=video_path, error=str(exc))
+        raise exc
 
 
 # ── Clip Selection via Gemini LLM ─────────────────────────────────────────────
@@ -366,6 +384,8 @@ async def select_clips_with_gemini(
     video_duration: float,
     user_prompt: str,
     max_clips: int = 10,
+    min_duration: int = 15,
+    max_duration: int = 60,
 ) -> List[Dict[str, Any]]:
     """
     Use Google Gemini (same approach as OpenShorts) to select viral clip moments.
@@ -384,6 +404,8 @@ async def select_clips_with_gemini(
         transcript_text=transcript_text[:8000],
         words_json=words_json,
         user_prompt=user_prompt,
+        min_duration=min_duration,
+        max_duration=max_duration,
     )
 
     def _call_gemini() -> List[Dict]:
@@ -407,7 +429,7 @@ async def select_clips_with_gemini(
         valid = []
         for c in clips:
             duration = c["end"] - c["start"]
-            if 0 <= c["start"] < c["end"] <= video_duration and 15 <= duration <= 60:
+            if 0 <= c["start"] < c["end"] <= video_duration and min_duration <= duration <= max_duration:
                 valid.append(c)
         return valid[:max_clips]
 

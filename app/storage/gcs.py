@@ -11,19 +11,65 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from google.auth.exceptions import DefaultCredentialsError
+from google.auth import compute_engine
 from google.cloud import storage
-from tenacity import retry, stop_after_attempt, wait_exponential
+from google.oauth2 import service_account
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
 import structlog
 
 log = structlog.get_logger(__name__)
 
+DEFAULT_CREDENTIALS_PATH = "/app/service_account.json"
+
+
+def _is_cloud_run() -> bool:
+    """Return True when running inside Cloud Run."""
+    return bool(os.getenv("K_SERVICE"))
+
 
 def _get_client() -> storage.Client:
-    """Return a GCS client (uses GOOGLE_APPLICATION_CREDENTIALS env var)."""
+    """Return a GCS client using a local key when configured, otherwise ADC."""
     settings = get_settings()
-    return storage.Client(project=settings.gcp_project_id)
+    env_credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    settings_credentials_path = settings.google_application_credentials
+    credentials_path = env_credentials_path or settings_credentials_path
+
+    if credentials_path and (
+        env_credentials_path
+        or settings_credentials_path != DEFAULT_CREDENTIALS_PATH
+        or Path(credentials_path).expanduser().is_file()
+    ):
+        key_path = Path(credentials_path).expanduser()
+        if not key_path.is_file():
+            if _is_cloud_run():
+                log.warning(
+                    "gcs_credentials_file_missing_using_cloud_run_adc",
+                    path=credentials_path,
+                )
+                return storage.Client(
+                    project=settings.gcp_project_id,
+                    credentials=compute_engine.Credentials(),
+                )
+
+            raise DefaultCredentialsError(
+                "GOOGLE_APPLICATION_CREDENTIALS points to a missing service account file: "
+                f"{credentials_path}"
+            )
+
+        credentials = service_account.Credentials.from_service_account_file(str(key_path))
+        return storage.Client(project=settings.gcp_project_id, credentials=credentials)
+
+    try:
+        return storage.Client(project=settings.gcp_project_id)
+    except DefaultCredentialsError as exc:
+        raise DefaultCredentialsError(
+            "Google Cloud credentials are not configured. Set GOOGLE_APPLICATION_CREDENTIALS "
+            "to a readable service account JSON file for local Docker/dev, or run the service "
+            "with a Cloud Run service account that can access the bucket."
+        ) from exc
 
 
 def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
@@ -38,7 +84,11 @@ def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
 
 # ── Download ──────────────────────────────────────────────────────────────────
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(
+    retry=retry_if_not_exception_type(DefaultCredentialsError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+)
 async def download_from_gcs(gcs_uri: str, local_path: str) -> str:
     """
     Download a GCS object to a local file path.
@@ -71,7 +121,11 @@ async def download_from_gcs(gcs_uri: str, local_path: str) -> str:
 
 # ── Upload ────────────────────────────────────────────────────────────────────
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(
+    retry=retry_if_not_exception_type(DefaultCredentialsError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+)
 async def upload_to_gcs(
     local_path: str,
     destination_blob_name: str,

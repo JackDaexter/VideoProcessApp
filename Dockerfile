@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
+    wget \
     pkg-config \
     libglib2.0-0 \
     libgl1 \
@@ -38,8 +39,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download YOLOv8n model weights
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+# Download YOLOv8n weights directly to a fixed absolute path — no cache resolution at runtime
+RUN mkdir -p /app/models && \
+    wget -q -O /app/models/yolov8n.pt \
+    https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.pt
 
 # Pre-download faster-whisper base model
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
@@ -63,15 +66,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy virtual env (with all Python packages + model weights)
+# Copy virtual env (with all Python packages)
 COPY --from=builder /opt/venv /opt/venv
-# Copy pre-downloaded model files
+# Copy YOLOv8n weights from the explicit build path
+COPY --from=builder /app/models /app/models
+# Copy pre-downloaded faster-whisper model weights
 COPY --from=builder /root/.cache /root/.cache
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Non-root user
+# Absolute path to the pre-baked YOLO model — used by openshots_service.py
+ENV YOLO_MODEL_PATH=/app/models/yolov8n.pt
+
+# Non-root user — owns the models dir and whisper cache
 RUN useradd -m -u 1001 appuser && \
-    chown -R appuser:appuser /root/.cache
+    chown -R appuser:appuser /app/models /root/.cache
 
 WORKDIR /app
 COPY app/ ./app/

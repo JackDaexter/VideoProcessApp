@@ -12,6 +12,7 @@ venv/
 # Environment & Secrets
 .env
 gcp-key.json
+service_account.json
 *.pem
 *.key
 

@@ -57,6 +57,8 @@ async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None
             video_duration=video_duration,
             user_prompt=request.prompt,
             max_clips=request.options.max_clips,
+            min_duration=request.options.min_duration_per_clip,
+            max_duration=request.options.max_duration_per_clip,
         )
 
         if not selected_clips:

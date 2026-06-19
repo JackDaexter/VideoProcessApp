@@ -13,7 +13,7 @@ services:
       - .env
     volumes:
       # Mount GCP service account key for local dev
-      - ./gcp-key.json:/app/gcp-key.json:ro
+      - ./service_account.json:/app/service_account.json:ro
       # Hot-reload app code in development
       - ./app:/app/app
       # Persistent temp directory

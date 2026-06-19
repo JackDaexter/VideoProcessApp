@@ -48,16 +48,16 @@ structlog.configure(
 log = structlog.get_logger(__name__)
 
 
-# ── Lifespan: Warm up all models at startup ───────────────────────────────────
+# ── Lifespan: Warm up all models in the background after startup ──────────────
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    settings = get_settings()
-    log.info("server_starting", env=settings.app_env)
+async def _preload_models(settings) -> None:
+    """Load Whisper, YOLO, and MediaPipe in the background.
 
-    os.makedirs(settings.temp_dir, exist_ok=True)
-
-    # Pre-load all models to avoid cold-start latency on first request
+    Runs after the server is already listening on port 8080 so Cloud Run's
+    startup probe succeeds immediately. The first job request that arrives
+    before this completes will find models already initialised (or wait a
+    few extra seconds on first use).
+    """
     from app.services.openshots_service import (
         get_face_detection,
         get_whisper_model,
@@ -66,10 +66,24 @@ async def lifespan(app: FastAPI):
 
     loop = asyncio.get_event_loop()
     log.info("preloading_models")
-    await loop.run_in_executor(None, get_whisper_model)
-    await loop.run_in_executor(None, get_yolo_model)
-    await loop.run_in_executor(None, get_face_detection)
-    log.info("models_ready", whisper=settings.whisper_model, crop_mode=settings.crop_mode)
+    try:
+        await loop.run_in_executor(None, get_whisper_model)
+        await loop.run_in_executor(None, get_yolo_model)
+        await loop.run_in_executor(None, get_face_detection)
+        log.info("models_ready", whisper=settings.whisper_model, crop_mode=settings.crop_mode)
+    except Exception:
+        log.exception("model_preload_failed")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    log.info("server_starting", env=settings.app_env)
+
+    os.makedirs(settings.temp_dir, exist_ok=True)
+
+    # Start model warm-up in the background — server binds to port immediately
+    asyncio.create_task(_preload_models(settings))
 
     yield
     log.info("server_shutdown")

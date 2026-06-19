@@ -362,7 +362,7 @@ async def transcribe_video(video_path: str) -> Dict[str, Any]:
             # if the video has no audio track or the audio track is unreadable.
             log.error("transcribe_failed_no_audio", path=video_path, error=str(exc))
             raise ValueError(
-                "No valid audio track found in the video. Please verify that the input video has sound."
+                "The video doesn't have an audio track. Please verify that the input video has sound."
             ) from exc
 
     try:

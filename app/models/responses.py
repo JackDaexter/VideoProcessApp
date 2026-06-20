@@ -30,6 +30,7 @@ class JobResponse(BaseModel):
     job_id: str
     type: JobType
     status: JobStatus
+    current_step: Optional[str] = None
     input_url: str
     prompt: str
     options: Optional[Dict[str, Any]] = None

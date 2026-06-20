@@ -131,6 +131,17 @@ async def update_job_status(
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
+async def update_job_step(job_id: str, step: str) -> None:
+    """Update current_step to reflect which pipeline stage is active."""
+    client = await get_client()
+    now = datetime.now(timezone.utc).isoformat()
+    await client.table("jobs").update(
+        {"current_step": step, "updated_at": now}
+    ).eq("id", job_id).execute()
+    log.info("job_step", job_id=job_id, step=step)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
 async def delete_job(job_id: str) -> bool:
     """
     Mark a job as cancelled (soft delete). Returns True if job existed.

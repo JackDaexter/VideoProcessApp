@@ -364,7 +364,7 @@ gcloud run deploy video-process-app \
     --max-instances 10 \
     --timeout 3600 \
     --service-account="service-storage@phantompilot.iam.gserviceaccount.com" \
-    --set-env-vars "API_KEY=mytokentochangemen,SUPABASE_URL=https://iprbepulxpebwbquqxju.supabase.co,GCP_PROJECT_ID=phantompilot,GCP_BUCKET_NAME=phantompilot_videos,GEMINI_MODEL=gemini-2.0-flash,WHISPER_MODEL=base,CROP_MODE=TRACK,MAX_CLIPS=10,APP_ENV=production,LOG_LEVEL=info" \
+    --set-env-vars "API_KEY=mytokentochangemen,SUPABASE_URL=https://iprbepulxpebwbquqxju.supabase.co,GCP_PROJECT_ID=phantompilot,GCP_BUCKET_NAME=phantompilot_videos,GEMINI_MODEL=gemini-2.0-flash,WHISPER_MODEL=base,CROP_MODE=TRACK,MAX_CLIPS=10,APP_ENV=production,LOG_LEVEL=info,REFRAME_QUALITY=LOW,WHISPER_BEAM_SIZE=1" \
     --set-secrets "SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" 
 ```
 
@@ -372,5 +372,5 @@ gcloud run deploy video-process-app \
 # Add service account rght to secret management
 
 ```bash
-gcloud 
+gcloud iam service-accounts add-iam-policy-binding service-storage@phantompilot.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor --member "serviceAccount:service-storage@phantompilot.iam.gserviceaccount.com" --project phantompilot
 ```

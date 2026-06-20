@@ -19,7 +19,7 @@ from pathlib import Path
 import structlog
 
 from app.config import get_settings
-from app.db.supabase import update_job_status
+from app.db.supabase import update_job_status, update_job_step
 from app.models.requests import AIShortsRequest
 from app.models.responses import JobStatus
 from app.services import openshots_service as os_svc
@@ -42,16 +42,20 @@ async def run_ai_shorts(job_id: str, request: AIShortsRequest) -> None:
         log.info("shorts_pipeline_start", job_id=job_id)
 
         # ── 2. Download source video ──────────────────────────────────────────
+        await update_job_step(job_id, "downloading_video")
         local_video = str(tmp_dir / "source.mp4")
         await download_from_gcs(request.video_url, local_video)
 
         # ── 3. Get duration ───────────────────────────────────────────────────
+        await update_job_step(job_id, "analyzing_video")
         video_duration = await os_svc.get_video_duration(local_video)
 
         # ── 4. Transcribe ─────────────────────────────────────────────────────
+        await update_job_step(job_id, "transcribing")
         transcript_data = await os_svc.transcribe_video(local_video)
 
         # ── 5. Gemini picks the single best moment ────────────────────────────
+        await update_job_step(job_id, "selecting_clips")
         clips = await os_svc.select_clips_with_gemini(
             transcript_text=transcript_data["text"],
             words=transcript_data["words"],
@@ -77,10 +81,12 @@ async def run_ai_shorts(job_id: str, request: AIShortsRequest) -> None:
         log.info("shorts_best_clip", start=best["start"], end=best["end"])
 
         # ── 6. Cut the segment ────────────────────────────────────────────────
+        await update_job_step(job_id, "cutting_clip")
         local_cut = str(tmp_dir / "cut.mp4")
         await os_svc.cut_clip(local_video, local_cut, best["start"], best["end"])
 
         # ── 7. Reframe to 9:16 (face tracking) ───────────────────────────────
+        await update_job_step(job_id, "reframing_to_vertical")
         local_vertical = str(tmp_dir / "vertical.mp4")
         await os_svc.reframe_to_vertical(local_cut, local_vertical)
 
@@ -105,6 +111,7 @@ async def run_ai_shorts(job_id: str, request: AIShortsRequest) -> None:
                 captions_burned = True
 
         # ── 9. Upload to GCS ──────────────────────────────────────────────────
+        await update_job_step(job_id, "uploading_to_gcs")
         gcs_path = f"{settings.gcs_output_prefix}/{job_id}/short.mp4"
         gcs_uri = await upload_to_gcs(output_video, gcs_path)
         signed_url = await generate_signed_url(gcs_uri, expiration_minutes=720)

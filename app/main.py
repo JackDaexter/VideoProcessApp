@@ -69,7 +69,9 @@ async def _preload_models(settings) -> None:
     try:
         await loop.run_in_executor(None, get_whisper_model)
         await loop.run_in_executor(None, get_yolo_model)
-        await loop.run_in_executor(None, get_face_detection)
+        # MediaPipe requires a display context — only preload in TRACK mode
+        if settings.crop_mode == "TRACK":
+            await loop.run_in_executor(None, get_face_detection)
         log.info("models_ready", whisper=settings.whisper_model, crop_mode=settings.crop_mode)
     except Exception:
         log.exception("model_preload_failed")

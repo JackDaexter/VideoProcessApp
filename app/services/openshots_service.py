@@ -47,6 +47,14 @@ log = structlog.get_logger(__name__)
 
 ASPECT_RATIO = 9 / 16  # Vertical 9:16 for Shorts/Reels/TikTok
 
+# YOLO frame intervals per quality level (None = never run YOLO)
+YOLO_FRAME_INTERVALS: dict = {
+    "LOW": None,      # 0%  — MediaPipe only, no YOLO fallback
+    "MEDIUM": 50,     # ~2% — run YOLO every 50 frames
+    "HIGH": 10,       # ~10% — run YOLO every 10 frames
+    "PREMIUM": 1,     # 100% — run YOLO on every frame (original behavior)
+}
+
 # Gemini prompt — identical to OpenShorts' GEMINI_PROMPT_TEMPLATE
 GEMINI_CLIP_PROMPT = """\
 You are a senior short-form video editor. Read the ENTIRE transcript and word-level timestamps \
@@ -342,7 +350,7 @@ async def transcribe_video(video_path: str) -> Dict[str, Any]:
                 video_path,
                 language="en",
                 word_timestamps=True,
-                beam_size=5,
+                beam_size=get_settings().whisper_beam_size,
             )
             full_text = ""
             all_segments = []
@@ -540,6 +548,11 @@ async def reframe_to_vertical_track(
     tmp_silent = output_path.replace(".mp4", "_silent.mp4")
 
     def _run() -> None:
+        settings = get_settings()
+        quality = settings.reframe_quality.upper()
+        yolo_interval = YOLO_FRAME_INTERVALS.get(quality, 1)
+        log.info("reframe_track_quality", quality=quality, yolo_interval=yolo_interval)
+
         cap = cv2.VideoCapture(source_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         v_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -552,6 +565,9 @@ async def reframe_to_vertical_track(
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         out = cv2.VideoWriter(tmp_silent, fourcc, fps, (output_width, output_height))
 
+        last_yolo_box: Optional[List[int]] = None
+        last_yolo_frame: int = -1000
+
         for frame_num in tqdm(range(total_frames), desc="Reframing", leave=False):
             ret, frame = cap.read()
             if not ret:
@@ -561,9 +577,19 @@ async def reframe_to_vertical_track(
             face_candidates = detect_face_candidates(frame)
             face_box = tracker.get_target(face_candidates, frame_num, v_width)
 
-            # YOLO fallback
+            # YOLO fallback — frequency controlled by REFRAME_QUALITY
             if face_box is None:
-                face_box = detect_person_yolo(frame)
+                if yolo_interval is None:
+                    # LOW: never run YOLO, reuse last known position
+                    face_box = last_yolo_box
+                elif frame_num - last_yolo_frame >= yolo_interval:
+                    # Run YOLO and cache the result
+                    face_box = detect_person_yolo(frame)
+                    last_yolo_box = face_box
+                    last_yolo_frame = frame_num
+                else:
+                    # Reuse cached YOLO result from N frames ago
+                    face_box = last_yolo_box
 
             cameraman.update_target(face_box)
             x1, y1, x2, y2 = cameraman.get_crop_box(force_snap=(frame_num == 0))

@@ -67,7 +67,7 @@ steps:
       - --set-secrets
       - "API_KEY=video-process-api-key:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_KEY=supabase-service-key:latest"
       - --set-env-vars
-      - "GCP_PROJECT_ID=$PROJECT_ID,GCP_BUCKET_NAME=${_SERVICE_NAME}-videos,APP_ENV=production,WHISPER_MODEL=base"
+      - "GCP_PROJECT_ID=$PROJECT_ID,GCP_BUCKET_NAME=${_SERVICE_NAME}-videos,APP_ENV=production,WHISPER_MODEL=base,WHISPER_BEAM_SIZE=1,REFRAME_QUALITY=LOW"
       - --service-account
       - "video-process-sa@$PROJECT_ID.iam.gserviceaccount.com"
     waitFor: ["push"]

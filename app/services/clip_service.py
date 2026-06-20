@@ -17,7 +17,7 @@ from pathlib import Path
 import structlog
 
 from app.config import get_settings
-from app.db.supabase import update_job_status
+from app.db.supabase import update_job_status, update_job_step
 from app.models.requests import ClipGeneratorRequest
 from app.models.responses import JobStatus
 from app.services import openshots_service as os_svc
@@ -41,16 +41,20 @@ async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None
         log.info("clip_pipeline_start", job_id=job_id)
 
         # ── 2. Download source video from GCS ─────────────────────────────────
+        await update_job_step(job_id, "downloading_video")
         local_video = str(tmp_dir / "source.mp4")
         await download_from_gcs(request.video_url, local_video)
 
         # ── 3. Get video duration ─────────────────────────────────────────────
+        await update_job_step(job_id, "analyzing_video")
         video_duration = await os_svc.get_video_duration(local_video)
 
         # ── 4. Transcribe with faster-whisper (word-level) ────────────────────
+        await update_job_step(job_id, "transcribing")
         transcript_data = await os_svc.transcribe_video(local_video)
 
         # ── 5. Gemini LLM clip selection ──────────────────────────────────────
+        await update_job_step(job_id, "selecting_clips")
         selected_clips = await os_svc.select_clips_with_gemini(
             transcript_text=transcript_data["text"],
             words=transcript_data["words"],
@@ -65,20 +69,24 @@ async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None
             raise ValueError("Gemini found no suitable viral clips for this video and prompt.")
 
         # ── 6. Cut + reframe each clip ────────────────────────────────────────
+        total_clips = len(selected_clips)
         clips_result = []
         for idx, clip in enumerate(selected_clips):
             clip_num = idx + 1
             log.info("processing_clip", job_id=job_id, clip=clip_num, start=clip["start"], end=clip["end"])
 
             # Cut the raw segment
+            await update_job_step(job_id, f"cutting_clip_{clip_num}_of_{total_clips}")
             local_cut = str(tmp_dir / f"clip_{clip_num:02}_cut.mp4")
             await os_svc.cut_clip(local_video, local_cut, clip["start"], clip["end"])
 
             # Reframe to 9:16 (TRACK or GENERAL mode)
+            await update_job_step(job_id, f"reframing_clip_{clip_num}_of_{total_clips}")
             local_vertical = str(tmp_dir / f"clip_{clip_num:02}_vertical.mp4")
             await os_svc.reframe_to_vertical(local_cut, local_vertical)
 
             # Upload to GCS
+            await update_job_step(job_id, f"uploading_clip_{clip_num}_of_{total_clips}")
             gcs_path = f"{settings.gcs_output_prefix}/{job_id}/clips/clip_{clip_num:02}.mp4"
             gcs_uri = await upload_to_gcs(local_vertical, gcs_path)
             signed_url = await generate_signed_url(gcs_uri, expiration_minutes=720)

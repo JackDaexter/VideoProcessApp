@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.jobs (
     options     JSONB NOT NULL DEFAULT '{}',
     result      JSONB,
     error       TEXT,
+    current_step TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -52,6 +53,12 @@ ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 
 -- No public policies — only service role can access.
 -- Add policies here if you add user-scoped access later.
+
+-- ── Migration: add current_step column ───────────────────────────────────────
+-- Run this if the table already exists (safe to re-run — does nothing if column exists).
+
+ALTER TABLE public.jobs
+    ADD COLUMN IF NOT EXISTS current_step TEXT;
 
 -- ── Example Queries ───────────────────────────────────────────────────────────
 

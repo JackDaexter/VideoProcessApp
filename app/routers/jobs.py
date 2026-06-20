@@ -24,6 +24,7 @@ def _parse_job_row(row: dict) -> JobResponse:
         job_id=row["id"],
         type=JobType(row["type"]),
         status=JobStatus(row["status"]),
+        current_step=row.get("current_step"),
         input_url=row["input_url"],
         prompt=row["prompt"],
         options=row.get("options"),

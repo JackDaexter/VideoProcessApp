@@ -35,8 +35,14 @@ class Settings(BaseSettings):
     # ── OpenShorts Pipeline ───────────────────────────────────────────────────
     # faster-whisper model: tiny | base | small | medium | large-v3
     whisper_model: str = "base"
+    # beam_size: 1=fastest, 5=most accurate (default OpenShorts value)
+    whisper_beam_size: int = 3
     # Crop mode: TRACK (MediaPipe face tracking) | GENERAL (blurred background)
-    crop_mode: str = "TRACK"
+    # TODO : check after if allow option
+    crop_mode: str = "GENERAL"
+    # YOLO quality in TRACK mode: LOW | MEDIUM | HIGH | PREMIUM
+    # LOW=never, MEDIUM=every 50 frames, HIGH=every 10 frames, PREMIUM=every frame
+    reframe_quality: str = "MEDIUM"
     # Max clips Gemini can select per video
     max_clips: int = 10
     # Temp directory for intermediate processing files

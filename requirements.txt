@@ -26,7 +26,7 @@ faster-whisper==1.2.1
 scenedetect==0.7
 
 # Face tracking — MediaPipe (lightweight, CPU-friendly)
-mediapipe==0.10.35
+mediapipe==0.10.9
 
 # Person detection fallback — YOLOv8
 ultralytics==8.4.46

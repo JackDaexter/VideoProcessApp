@@ -11,6 +11,7 @@ Uses the real OpenShorts stack:
   7. Update Supabase job
 """
 
+import asyncio
 import shutil
 from pathlib import Path
 
@@ -51,7 +52,9 @@ async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None
 
         # ── 4. Transcribe with faster-whisper (word-level) ────────────────────
         await update_job_step(job_id, "transcribing")
-        transcript_data = await os_svc.transcribe_video(local_video)
+        local_audio = str(tmp_dir / "audio.wav")
+        await os_svc.extract_audio(local_video, local_audio)
+        transcript_data = await os_svc.transcribe_video(local_audio)
 
         # ── 5. Gemini LLM clip selection ──────────────────────────────────────
         await update_job_step(job_id, "selecting_clips")
@@ -68,41 +71,50 @@ async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None
         if not selected_clips:
             raise ValueError("Gemini found no suitable viral clips for this video and prompt.")
 
-        # ── 6. Cut + reframe each clip ────────────────────────────────────────
+        # ── 6. Cut + reframe each clip (parallel, capped by MAX_CONCURRENT_CLIPS) ──
         total_clips = len(selected_clips)
-        clips_result = []
-        for idx, clip in enumerate(selected_clips):
+        completed = 0
+        semaphore = asyncio.Semaphore(settings.max_concurrent_clips)
+
+        await update_job_step(job_id, f"processing_{total_clips}_clips")
+
+        async def _process_clip(idx: int, clip: dict) -> dict:
+            nonlocal completed
             clip_num = idx + 1
-            log.info("processing_clip", job_id=job_id, clip=clip_num, start=clip["start"], end=clip["end"])
+            async with semaphore:
+                log.info("clip_start", job_id=job_id, clip=clip_num, total=total_clips)
 
-            # Cut the raw segment
-            await update_job_step(job_id, f"cutting_clip_{clip_num}_of_{total_clips}")
-            local_cut = str(tmp_dir / f"clip_{clip_num:02}_cut.mp4")
-            await os_svc.cut_clip(local_video, local_cut, clip["start"], clip["end"])
+                local_cut = str(tmp_dir / f"clip_{clip_num:02}_cut.mp4")
+                await os_svc.cut_clip(local_video, local_cut, clip["start"], clip["end"])
 
-            # Reframe to 9:16 (TRACK or GENERAL mode)
-            await update_job_step(job_id, f"reframing_clip_{clip_num}_of_{total_clips}")
-            local_vertical = str(tmp_dir / f"clip_{clip_num:02}_vertical.mp4")
-            await os_svc.reframe_to_vertical(local_cut, local_vertical)
+                local_vertical = str(tmp_dir / f"clip_{clip_num:02}_vertical.mp4")
+                await os_svc.reframe_to_vertical(local_cut, local_vertical)
 
-            # Upload to GCS
-            await update_job_step(job_id, f"uploading_clip_{clip_num}_of_{total_clips}")
-            gcs_path = f"{settings.gcs_output_prefix}/{job_id}/clips/clip_{clip_num:02}.mp4"
-            gcs_uri = await upload_to_gcs(local_vertical, gcs_path)
-            signed_url = await generate_signed_url(gcs_uri, expiration_minutes=720)
+                gcs_path = f"{settings.gcs_output_prefix}/{job_id}/clips/clip_{clip_num:02}.mp4"
+                gcs_uri = await upload_to_gcs(local_vertical, gcs_path)
+                signed_url = await generate_signed_url(gcs_uri, expiration_minutes=720)
 
-            clips_result.append({
-                "clip_number": clip_num,
-                "gcs_uri": gcs_uri,
-                "download_url": signed_url,
-                "start": clip["start"],
-                "end": clip["end"],
-                "duration": round(clip["end"] - clip["start"], 2),
-                "viral_hook_text": clip.get("viral_hook_text", ""),
-                "tiktok_description": clip.get("video_description_for_tiktok", ""),
-                "instagram_description": clip.get("video_description_for_instagram", ""),
-                "youtube_title": clip.get("video_title_for_youtube_short", ""),
-            })
+                completed += 1
+                await update_job_step(job_id, f"clips_done_{completed}_of_{total_clips}")
+                log.info("clip_done", job_id=job_id, clip=clip_num, done=completed, total=total_clips)
+
+                return {
+                    "clip_number": clip_num,
+                    "gcs_uri": gcs_uri,
+                    "download_url": signed_url,
+                    "start": clip["start"],
+                    "end": clip["end"],
+                    "duration": round(clip["end"] - clip["start"], 2),
+                    "viral_hook_text": clip.get("viral_hook_text", ""),
+                    "tiktok_description": clip.get("video_description_for_tiktok", ""),
+                    "instagram_description": clip.get("video_description_for_instagram", ""),
+                    "youtube_title": clip.get("video_title_for_youtube_short", ""),
+                }
+
+        results = await asyncio.gather(
+            *[_process_clip(idx, clip) for idx, clip in enumerate(selected_clips)]
+        )
+        clips_result = sorted(results, key=lambda x: x["clip_number"])
 
         # ── 7. Mark completed ─────────────────────────────────────────────────
         result = {

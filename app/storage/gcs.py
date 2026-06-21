@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+import google.auth
+from google.auth import compute_engine, iam
 from google.auth.exceptions import DefaultCredentialsError
-from google.auth import compute_engine
+from google.auth.transport import requests as google_requests
 from google.cloud import storage
 from google.oauth2 import service_account
 from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
@@ -175,23 +177,70 @@ async def upload_image_to_gcs(
 
 # ── Signed URL (for client-side access) ──────────────────────────────────────
 
+def _fetch_metadata(path: str) -> str:
+    """Fetch a value from the GCP metadata server."""
+    import urllib.request
+    url = f"http://metadata.google.internal/computeMetadata/v1/{path}"
+    req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return resp.read().decode()
+
+
+def _get_signing_credentials() -> service_account.Credentials:
+    """
+    Return credentials that can sign URLs.
+
+    - Local / dev: service account JSON key signs directly.
+    - Cloud Run: fetches the real SA email from the metadata server,
+      then uses IAM signBlob to sign without needing the private key.
+      Requires roles/iam.serviceAccountTokenCreator on the SA.
+    """
+    credentials, _ = google.auth.default()
+
+    if isinstance(credentials, service_account.Credentials):
+        return credentials
+
+    # Fetch the actual service account email from the metadata server
+    # (credentials.service_account_email returns "default", not the real email)
+    sa_email = _fetch_metadata("instance/service-accounts/default/email")
+    log.info("gcs_signing_via_iam", service_account=sa_email)
+
+    auth_request = google_requests.Request()
+    credentials.refresh(auth_request)
+
+    signer = iam.Signer(
+        request=auth_request,
+        credentials=credentials,
+        service_account_email=sa_email,
+    )
+    return service_account.Credentials(
+        signer=signer,
+        service_account_email=sa_email,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+
+
 async def generate_signed_url(gcs_uri: str, expiration_minutes: int = 60) -> str:
     """
     Generate a time-limited signed URL for a GCS object.
-    Useful to give the frontend a direct download link.
+    Works on Cloud Run (IAM signing) and locally (service account key).
     """
     import datetime
 
     def _sign() -> str:
         bucket_name, blob_name = _parse_gcs_uri(gcs_uri)
-        client = _get_client()
-        bucket = client.bucket(bucket_name)
-        blob = bucket.blob(blob_name)
-        url = blob.generate_signed_url(
+        signing_credentials = _get_signing_credentials()
+        client = storage.Client(
+            project=get_settings().gcp_project_id,
+            credentials=signing_credentials,
+        )
+        blob = client.bucket(bucket_name).blob(blob_name)
+        return blob.generate_signed_url(
             expiration=datetime.timedelta(minutes=expiration_minutes),
             method="GET",
             version="v4",
+            credentials=signing_credentials,
         )
-        return url
 
     return await asyncio.get_event_loop().run_in_executor(None, _sign)

@@ -53,9 +53,10 @@ steps:
       - --region
       - "${_REGION}"
       - --memory
-      - "4Gi"
+      - "8Gi"
       - --cpu
       - "2"
+      - --no-cpu-throttling
       - --timeout
       - "3600"
       - --concurrency
@@ -67,7 +68,7 @@ steps:
       - --set-secrets
       - "API_KEY=video-process-api-key:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_KEY=supabase-service-key:latest"
       - --set-env-vars
-      - "GCP_PROJECT_ID=$PROJECT_ID,GCP_BUCKET_NAME=${_SERVICE_NAME}-videos,APP_ENV=production,WHISPER_MODEL=base,WHISPER_BEAM_SIZE=1,REFRAME_QUALITY=LOW"
+      - "GCP_PROJECT_ID=$PROJECT_ID,GCP_BUCKET_NAME=${_SERVICE_NAME}-videos,APP_ENV=production,WHISPER_MODEL=base,WHISPER_BEAM_SIZE=1,CROP_MODE=GENERAL,REFRAME_QUALITY=LOW,MAX_CONCURRENT_CLIPS=3"
       - --service-account
       - "video-process-sa@$PROJECT_ID.iam.gserviceaccount.com"
     waitFor: ["push"]

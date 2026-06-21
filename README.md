@@ -331,7 +331,7 @@ Key components ported from OpenShorts:
 MIT — see [LICENSE](./LICENSE)
 
 
-#Run it
+# Run it
 # Deploy on Google Cloud Run
 
 
@@ -349,28 +349,3 @@ gcloud builds submit \
     --tag europe-west1-docker.pkg.dev/${PROJECT_ID}/video-process-app/app:latest
 ```
 
-## Deploy image on cloud run
-
-
-```bash
-gcloud run deploy video-process-app \
-    --image europe-west1-docker.pkg.dev/phantompilot/video-process-app/app:latest \
-    --region europe-west1 \
-    --platform managed \
-    --allow-unauthenticated \
-    --memory 8Gi \
-    --cpu 4 \
-    --concurrency 1 \
-    --max-instances 10 \
-    --timeout 3600 \
-    --service-account="service-storage@phantompilot.iam.gserviceaccount.com" \
-    --set-env-vars "API_KEY=mytokentochangemen,SUPABASE_URL=https://iprbepulxpebwbquqxju.supabase.co,GCP_PROJECT_ID=phantompilot,GCP_BUCKET_NAME=phantompilot_videos,GEMINI_MODEL=gemini-2.0-flash,WHISPER_MODEL=base,CROP_MODE=TRACK,MAX_CLIPS=10,APP_ENV=production,LOG_LEVEL=info,REFRAME_QUALITY=LOW,WHISPER_BEAM_SIZE=1" \
-    --set-secrets "SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest" 
-```
-
-
-# Add service account rght to secret management
-
-```bash
-gcloud iam service-accounts add-iam-policy-binding service-storage@phantompilot.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor --member "serviceAccount:service-storage@phantompilot.iam.gserviceaccount.com" --project phantompilot
-```

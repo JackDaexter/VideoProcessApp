@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
-import mediapipe as mp
 import numpy as np
 import structlog
 from faster_whisper import WhisperModel
@@ -133,8 +132,12 @@ def get_whisper_model() -> WhisperModel:
     global _whisper_model
     if _whisper_model is None:
         settings = get_settings()
-        log.info("whisper_loading", model=settings.whisper_model)
-        _whisper_model = WhisperModel(settings.whisper_model, device="cpu", compute_type="int8")
+        log.info("whisper_loading", model=settings.whisper_model, device=settings.whisper_device)
+        _whisper_model = WhisperModel(
+            settings.whisper_model,
+            device=settings.whisper_device,
+            compute_type=settings.whisper_compute_type,
+        )
         log.info("whisper_loaded")
     return _whisper_model
 
@@ -155,6 +158,7 @@ def get_yolo_model() -> Any:
 def get_face_detection():
     global _mp_face_detection
     if _mp_face_detection is None:
+        import mediapipe as mp
         mp_fd = mp.solutions.face_detection
         _mp_face_detection = mp_fd.FaceDetection(model_selection=1, min_detection_confidence=0.5)
     return _mp_face_detection
@@ -355,6 +359,8 @@ async def transcribe_video(video_path: str) -> Dict[str, Any]:
             full_text = ""
             all_segments = []
             all_words = []
+            total_duration = info.duration or 0.0
+            last_logged_pct = 0
 
             for seg in segments:
                 full_text += seg.text
@@ -363,6 +369,12 @@ async def transcribe_video(video_path: str) -> Dict[str, Any]:
                 if seg.words:
                     for w in seg.words:
                         all_words.append({"w": w.word.strip(), "s": round(w.start, 3), "e": round(w.end, 3)})
+
+                if total_duration > 0:
+                    pct = int(seg.end / total_duration * 100)
+                    if pct >= last_logged_pct + 10:
+                        last_logged_pct = (pct // 10) * 10
+                        log.info("transcribe_progress", pct=last_logged_pct)
 
             return {"text": full_text.strip(), "segments": all_segments, "words": all_words}
         except IndexError as exc:
@@ -482,10 +494,25 @@ async def get_video_duration(video_path: str) -> float:
 
 def _ffmpeg(args: List[str]) -> None:
     """Run an FFmpeg command, raising on error."""
-    cmd = ["ffmpeg", "-y"] + args
+    cmd = ["ffmpeg", "-y", "-threads", "0"] + args
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg failed:\n{result.stderr}")
+
+
+async def extract_audio(video_path: str, audio_path: str) -> str:
+    """Extract audio track to a WAV file — much faster for whisper than reading the full video."""
+    def _run() -> None:
+        _ffmpeg([
+            "-i", video_path,
+            "-vn",              # drop video stream
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",     # 16kHz — whisper's native sample rate
+            "-ac", "1",         # mono
+            audio_path,
+        ])
+    await asyncio.get_event_loop().run_in_executor(None, _run)
+    return audio_path
 
 
 async def cut_clip(source_path: str, output_path: str, start: float, end: float) -> str:
@@ -658,7 +685,7 @@ async def reframe_to_vertical_general(
             "-vcodec", "libx264",
             "-acodec", "aac",
             "-crf", "23",
-            "-preset", "fast",
+            "-preset", "ultrafast",
             output_path,
         ])
 

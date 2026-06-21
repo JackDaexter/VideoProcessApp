@@ -52,7 +52,9 @@ async def run_ai_shorts(job_id: str, request: AIShortsRequest) -> None:
 
         # ── 4. Transcribe ─────────────────────────────────────────────────────
         await update_job_step(job_id, "transcribing")
-        transcript_data = await os_svc.transcribe_video(local_video)
+        local_audio = str(tmp_dir / "audio.wav")
+        await os_svc.extract_audio(local_video, local_audio)
+        transcript_data = await os_svc.transcribe_video(local_audio)
 
         # ── 5. Gemini picks the single best moment ────────────────────────────
         await update_job_step(job_id, "selecting_clips")

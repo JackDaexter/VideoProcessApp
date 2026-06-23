@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 
-from app.auth import require_api_key
+from app.auth import get_current_user
 from app.db.supabase import create_job
 from app.models.requests import AIShortsRequest
 from app.models.responses import JobCreatedResponse, JobStatus, JobType
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["AI Shorts"])
 async def ai_shorts(
     request: AIShortsRequest,
     background_tasks: BackgroundTasks,
-    _api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_current_user),
 ) -> JobCreatedResponse:
     """
     Create an AI Shorts generation job.
@@ -39,6 +39,7 @@ async def ai_shorts(
     - **options**: target_duration, add_captions, aspect_ratio
     """
     job = await create_job(
+        user_id=user_id,
         job_type=JobType.AI_SHORTS,
         input_url=request.video_url,
         prompt=request.prompt,

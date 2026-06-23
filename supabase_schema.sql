@@ -10,6 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE IF NOT EXISTS public.jobs (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     TEXT NOT NULL,
     type        TEXT NOT NULL CHECK (type IN ('clip_generator', 'ai_shorts', 'youtube_studio')),
     status      TEXT NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
@@ -54,11 +55,12 @@ ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 -- No public policies — only service role can access.
 -- Add policies here if you add user-scoped access later.
 
--- ── Migration: add current_step column ───────────────────────────────────────
+-- ── Migration: add columns ───────────────────────────────────────────────────
 -- Run this if the table already exists (safe to re-run — does nothing if column exists).
 
 ALTER TABLE public.jobs
-    ADD COLUMN IF NOT EXISTS current_step TEXT;
+    ADD COLUMN IF NOT EXISTS current_step TEXT,
+    ADD COLUMN IF NOT EXISTS user_id TEXT;
 
 -- ── Example Queries ───────────────────────────────────────────────────────────
 

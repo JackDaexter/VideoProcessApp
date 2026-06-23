@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.auth import require_api_key
+from app.auth import get_current_user
 from app.db.supabase import delete_job, get_job, list_jobs
 from app.models.responses import JobListResponse, JobResponse, JobStatus, JobType
 
@@ -22,6 +22,7 @@ def _parse_job_row(row: dict) -> JobResponse:
     """Convert a raw Supabase row dict to a JobResponse model."""
     return JobResponse(
         job_id=row["id"],
+        user_id=row["user_id"],
         type=JobType(row["type"]),
         status=JobStatus(row["status"]),
         current_step=row.get("current_step"),
@@ -43,11 +44,11 @@ def _parse_job_row(row: dict) -> JobResponse:
 )
 async def get_job_status(
     job_id: str,
-    _api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_current_user),
 ) -> JobResponse:
     """Poll this endpoint after submitting a job to check progress."""
     row = await get_job(job_id)
-    if not row:
+    if not row or row.get("user_id") != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job '{job_id}' not found.",
@@ -74,10 +75,11 @@ async def list_all_jobs(
     ),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    _api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_current_user),
 ) -> JobListResponse:
     """List jobs with optional filtering and pagination."""
     rows = await list_jobs(
+        user_id=user_id,
         status=job_status,
         job_type=job_type,
         limit=limit,
@@ -95,13 +97,15 @@ async def list_all_jobs(
 )
 async def cancel_job(
     job_id: str,
-    _api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_current_user),
 ) -> dict:
     """Cancel / soft-delete a job by setting its status to 'cancelled'."""
-    found = await delete_job(job_id)
-    if not found:
+    row = await get_job(job_id)
+    if not row or row.get("user_id") != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job '{job_id}' not found.",
         )
+    
+    await delete_job(job_id)
     return {"message": f"Job '{job_id}' has been cancelled.", "job_id": job_id}

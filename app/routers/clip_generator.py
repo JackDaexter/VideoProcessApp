@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 
-from app.auth import require_api_key
+from app.auth import get_current_user
 from app.db.supabase import create_job
 from app.models.requests import ClipGeneratorRequest
 from app.models.responses import JobCreatedResponse, JobStatus, JobType
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api", tags=["Clip Generator"])
 async def clip_generator(
     request: ClipGeneratorRequest,
     background_tasks: BackgroundTasks,
-    _api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_current_user),
 ) -> JobCreatedResponse:
     """
     Create a clip generator job.
@@ -38,6 +38,7 @@ async def clip_generator(
     - **options**: Optional configuration (max_clips, duration bounds)
     """
     job = await create_job(
+        user_id=user_id,
         job_type=JobType.CLIP_GENERATOR,
         input_url=request.video_url,
         prompt=request.prompt,

@@ -8,6 +8,9 @@ pydantic==2.11.7
 pydantic-settings==2.5.2
 python-dotenv==1.2.2
 
+# ─── Authentication ──────────────────────────────────────────────────────────
+firebase-admin==6.5.0
+
 # ─── Supabase ────────────────────────────────────────────────────────────────
 supabase==2.31.0
 
@@ -26,7 +29,7 @@ faster-whisper==1.2.1
 scenedetect==0.7
 
 # Face tracking — MediaPipe (lightweight, CPU-friendly)
-mediapipe==0.10.9
+mediapipe==0.10.35
 
 # Person detection fallback — YOLOv8
 ultralytics==8.4.46

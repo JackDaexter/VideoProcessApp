@@ -28,6 +28,7 @@ class JobType(str, Enum):
 
 class JobResponse(BaseModel):
     job_id: str
+    user_id: str
     type: JobType
     status: JobStatus
     current_step: Optional[str] = None

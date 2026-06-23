@@ -1,31 +1,48 @@
 """
-app/auth.py — API Key authentication dependency for FastAPI.
+app/auth.py — Firebase Authentication dependency for FastAPI.
 
-Every protected endpoint calls `Depends(require_api_key)`.
-The client must pass the key in the `X-API-Key` HTTP header.
+Every protected endpoint calls `Depends(get_current_user)`.
+The client must pass the Firebase JWT in the `Authorization: Bearer <token>` HTTP header.
 """
 
+import firebase_admin
+import firebase_admin.auth
 from fastapi import Depends, HTTPException, Security, status
-from fastapi.security import APIKeyHeader
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from app.config import get_settings
-
-_API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
+security = HTTPBearer(auto_error=True)
 
 
-async def require_api_key(
-    api_key: str = Security(_API_KEY_HEADER),
+def ensure_firebase_app() -> bool:
+    """Initialize Firebase Admin once before auth APIs are used."""
+    try:
+        firebase_admin.get_app()
+        return False
+    except ValueError:
+        firebase_admin.initialize_app()
+        return True
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
 ) -> str:
     """
-    FastAPI dependency — validates the X-API-Key header.
+    FastAPI dependency — validates the Firebase JWT token.
 
+    Returns:
+        str: The Firebase user_id (uid).
+        
     Raises:
-        HTTPException 403: if the key is missing or incorrect.
+        HTTPException 401: if the token is missing, invalid, or expired.
     """
-    settings = get_settings()
-    if api_key != settings.api_key:
+    token = credentials.credentials
+    try:
+        ensure_firebase_app()
+        decoded_token = firebase_admin.auth.verify_id_token(token)
+        return decoded_token.get("uid")
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing API key.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authentication credentials: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    return api_key

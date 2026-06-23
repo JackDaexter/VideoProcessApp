@@ -25,6 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.auth import ensure_firebase_app
 from app.config import get_settings
 from app.models.responses import HealthResponse
 from app.routers import ai_shorts, clip_generator, jobs, youtube_studio
@@ -81,6 +82,9 @@ async def _preload_models(settings) -> None:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     log.info("server_starting", env=settings.app_env)
+
+    if ensure_firebase_app():
+        log.info("firebase_admin_initialized")
 
     os.makedirs(settings.temp_dir, exist_ok=True)
 

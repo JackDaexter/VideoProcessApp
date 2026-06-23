@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 
-from app.auth import require_api_key
+from app.auth import get_current_user
 from app.db.supabase import create_job
 from app.models.requests import YouTubeStudioRequest
 from app.models.responses import JobCreatedResponse, JobStatus, JobType
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["YouTube Studio"])
 async def youtube_studio(
     request: YouTubeStudioRequest,
     background_tasks: BackgroundTasks,
-    _api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_current_user),
 ) -> JobCreatedResponse:
     """
     Create a YouTube Studio metadata generation job.
@@ -39,6 +39,7 @@ async def youtube_studio(
     - **channel_context**: Optional branding/channel info to include
     """
     job = await create_job(
+        user_id=user_id,
         job_type=JobType.YOUTUBE_STUDIO,
         input_url=request.video_url,
         prompt=request.prompt,

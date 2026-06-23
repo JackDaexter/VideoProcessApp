@@ -41,6 +41,7 @@ async def get_client() -> AsyncClient:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
 async def create_job(
+    user_id: str,
     job_type: JobType,
     input_url: str,
     prompt: str,
@@ -55,6 +56,7 @@ async def create_job(
 
     payload = {
         "id": job_id,
+        "user_id": user_id,
         "type": job_type.value,
         "status": JobStatus.PENDING.value,
         "input_url": input_url,
@@ -84,6 +86,7 @@ async def get_job(job_id: str) -> Optional[Dict[str, Any]]:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
 async def list_jobs(
+    user_id: str,
     status: Optional[str] = None,
     job_type: Optional[str] = None,
     limit: int = 50,
@@ -91,7 +94,7 @@ async def list_jobs(
 ) -> List[Dict[str, Any]]:
     """List jobs with optional filters."""
     client = await get_client()
-    query = client.table("jobs").select("*").order("created_at", desc=True)
+    query = client.table("jobs").select("*").eq("user_id", user_id).order("created_at", desc=True)
 
     if status:
         query = query.eq("status", status)

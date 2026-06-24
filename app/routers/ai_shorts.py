@@ -4,13 +4,14 @@ app/routers/ai_shorts.py — POST /api/ai-shorts endpoint.
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.auth import get_current_user
 from app.db.supabase import create_job
 from app.models.requests import AIShortsRequest
 from app.models.responses import JobCreatedResponse, JobStatus, JobType
 from app.services.shorts_service import run_ai_shorts
+from app.storage.gcs import gcs_uri_belongs_to_user_upload
 
 router = APIRouter(prefix="/api", tags=["AI Shorts"])
 
@@ -38,6 +39,12 @@ async def ai_shorts(
     - **prompt**: Guidance for which content to include in the short
     - **options**: target_duration, add_captions, aspect_ratio
     """
+    if not gcs_uri_belongs_to_user_upload(request.video_url, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="video_url must point to the current user's uploaded folder.",
+        )
+
     job = await create_job(
         user_id=user_id,
         job_type=JobType.AI_SHORTS,
@@ -46,7 +53,7 @@ async def ai_shorts(
         options=request.options.model_dump(),
     )
 
-    background_tasks.add_task(run_ai_shorts, job["id"], request)
+    background_tasks.add_task(run_ai_shorts, job["id"], user_id, request)
 
     return JobCreatedResponse(
         job_id=job["id"],

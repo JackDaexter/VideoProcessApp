@@ -23,12 +23,12 @@ from app.db.supabase import update_job_status, update_job_step
 from app.models.requests import AIShortsRequest
 from app.models.responses import JobStatus
 from app.services import openshots_service as os_svc
-from app.storage.gcs import download_from_gcs, generate_signed_url, upload_to_gcs
+from app.storage.gcs import download_from_gcs, generate_signed_url, upload_to_gcs, user_output_prefix
 
 log = structlog.get_logger(__name__)
 
 
-async def run_ai_shorts(job_id: str, request: AIShortsRequest) -> None:
+async def run_ai_shorts(job_id: str, user_id: str, request: AIShortsRequest) -> None:
     """
     Background task: run the AI Shorts pipeline (single best short).
     """
@@ -114,7 +114,7 @@ async def run_ai_shorts(job_id: str, request: AIShortsRequest) -> None:
 
         # ── 9. Upload to GCS ──────────────────────────────────────────────────
         await update_job_step(job_id, "uploading_to_gcs")
-        gcs_path = f"{settings.gcs_output_prefix}/{job_id}/short.mp4"
+        gcs_path = f"{user_output_prefix(user_id, job_id)}/short.mp4"
         gcs_uri = await upload_to_gcs(output_video, gcs_path)
         signed_url = await generate_signed_url(gcs_uri, expiration_minutes=720)
 

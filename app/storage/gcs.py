@@ -7,6 +7,7 @@ to/from GCS using the google-cloud-storage Python SDK.
 
 import asyncio
 import os
+import re
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -82,6 +83,32 @@ def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
     bucket_name = parsed.netloc
     blob_name = parsed.path.lstrip("/")
     return bucket_name, blob_name
+
+
+def safe_gcs_segment(value: str) -> str:
+    """Return a conservative object-name segment for user-controlled values."""
+    segment = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    segment = segment.strip("._-")
+    if not segment:
+        raise ValueError("GCS path segment cannot be empty")
+    return segment[:128]
+
+
+def user_upload_prefix(user_id: str) -> str:
+    settings = get_settings()
+    return f"{settings.gcs_upload_prefix}/{safe_gcs_segment(user_id)}"
+
+
+def user_output_prefix(user_id: str, job_id: str) -> str:
+    settings = get_settings()
+    return f"{settings.gcs_output_prefix}/{safe_gcs_segment(user_id)}/{safe_gcs_segment(job_id)}"
+
+
+def gcs_uri_belongs_to_user_upload(gcs_uri: str, user_id: str) -> bool:
+    settings = get_settings()
+    bucket_name, blob_name = _parse_gcs_uri(gcs_uri)
+    prefix = f"{user_upload_prefix(user_id)}/"
+    return bucket_name == settings.gcp_bucket_name and blob_name.startswith(prefix)
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
@@ -173,6 +200,52 @@ async def upload_image_to_gcs(
     ext = Path(local_path).suffix.lower()
     content_type = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
     return await upload_to_gcs(local_path, destination_blob_name, content_type, bucket_name)
+
+
+async def delete_gcs_uri(gcs_uri: str) -> bool:
+    """Delete one GCS object by URI. Returns False if it does not exist."""
+    log.info("gcs_delete_start", uri=gcs_uri)
+
+    def _delete() -> bool:
+        bucket_name, blob_name = _parse_gcs_uri(gcs_uri)
+        client = _get_client()
+        blob = client.bucket(bucket_name).blob(blob_name)
+        if not blob.exists():
+            return False
+        blob.delete()
+        return True
+
+    deleted = await asyncio.get_event_loop().run_in_executor(None, _delete)
+    log.info("gcs_delete_done", uri=gcs_uri, deleted=deleted)
+    return deleted
+
+
+async def delete_gcs_prefix(user_id: str, job_id: str, sub_path: str = "") -> int:
+    """
+    Delete all GCS blobs under output/{user_id}/{job_id}/{sub_path}/.
+
+    Returns the number of blobs deleted.
+    """
+    settings = get_settings()
+    prefix = user_output_prefix(user_id, job_id)
+    if sub_path:
+        prefix = f"{prefix}/{sub_path.strip('/')}"
+    prefix = prefix.rstrip("/") + "/"
+
+    log.info("gcs_prefix_delete_start", prefix=prefix)
+
+    def _delete_prefix() -> int:
+        client = _get_client()
+        bucket = client.bucket(settings.gcp_bucket_name)
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        if not blobs:
+            return 0
+        bucket.delete_blobs(blobs)
+        return len(blobs)
+
+    count = await asyncio.get_event_loop().run_in_executor(None, _delete_prefix)
+    log.info("gcs_prefix_delete_done", prefix=prefix, blobs_deleted=count)
+    return count
 
 
 # ── Signed URL (for client-side access) ──────────────────────────────────────

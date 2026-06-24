@@ -22,12 +22,12 @@ from app.db.supabase import update_job_status, update_job_step
 from app.models.requests import ClipGeneratorRequest
 from app.models.responses import JobStatus
 from app.services import openshots_service as os_svc
-from app.storage.gcs import download_from_gcs, generate_signed_url, upload_to_gcs
+from app.storage.gcs import download_from_gcs, generate_signed_url, upload_to_gcs, user_output_prefix
 
 log = structlog.get_logger(__name__)
 
 
-async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None:
+async def run_clip_generator(job_id: str, user_id: str, request: ClipGeneratorRequest) -> None:
     """
     Background task: run the full Clip Generator pipeline.
     Client polls GET /api/jobs/{job_id} for updates.
@@ -90,7 +90,7 @@ async def run_clip_generator(job_id: str, request: ClipGeneratorRequest) -> None
                 local_vertical = str(tmp_dir / f"clip_{clip_num:02}_vertical.mp4")
                 await os_svc.reframe_to_vertical(local_cut, local_vertical)
 
-                gcs_path = f"{settings.gcs_output_prefix}/{job_id}/clips/clip_{clip_num:02}.mp4"
+                gcs_path = f"{user_output_prefix(user_id, job_id)}/clips/clip_{clip_num:02}.mp4"
                 gcs_uri = await upload_to_gcs(local_vertical, gcs_path)
                 signed_url = await generate_signed_url(gcs_uri, expiration_minutes=720)
 

@@ -5,14 +5,18 @@ PhantomPilot Video Processing Backend — built on the OpenShorts stack
 (mutonby/openshorts: faster-whisper + Gemini + MediaPipe + YOLOv8 + FFmpeg)
 
 Endpoints:
-  POST   /api/clip-generator     → Generate viral clips from a video
-  POST   /api/ai-shorts          → Generate vertical 9:16 AI short
-  POST   /api/youtube-studio     → Generate YouTube title/description/tags/thumbnail
-  GET    /api/jobs               → List jobs (with filters)
-  GET    /api/jobs/{job_id}      → Get job status + result
-  DELETE /api/jobs/{job_id}      → Cancel a job
-  GET    /health                 → Health check
-  GET    /docs                   → Swagger UI
+  POST   /api/clip-generator              → Generate viral clips from a video
+  POST   /api/ai-shorts                   → Generate vertical 9:16 AI short
+  POST   /api/youtube-studio              → Generate YouTube title/description/tags/thumbnail
+  GET    /api/jobs                        → List jobs (with filters)
+  GET    /api/jobs/{job_id}              → Get job status + result
+  DELETE /api/jobs/{job_id}              → Cancel a job
+  GET    /api/clips                       → List user's clip generator jobs with clips
+  GET    /api/clips/{job_id}             → Get all clips for a specific job
+  DELETE /api/clips/{job_id}/clip/{n}   → Delete a single clip
+  DELETE /api/clips/{job_id}             → Delete an entire clip job
+  GET    /health                          → Health check
+  GET    /docs                            → Swagger UI
 """
 
 import asyncio
@@ -28,7 +32,7 @@ from fastapi.responses import JSONResponse
 from app.auth import ensure_firebase_app
 from app.config import get_settings
 from app.models.responses import HealthResponse
-from app.routers import ai_shorts, clip_generator, jobs, youtube_studio
+from app.routers import ai_shorts, clip_generator, clips, jobs, shorts, youtube_studio
 
 # ── Structured Logging ────────────────────────────────────────────────────────
 
@@ -140,6 +144,8 @@ app.include_router(clip_generator.router)
 app.include_router(ai_shorts.router)
 app.include_router(youtube_studio.router)
 app.include_router(jobs.router)
+app.include_router(shorts.router)
+app.include_router(clips.router)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────

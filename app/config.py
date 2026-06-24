@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     gcp_project_id: str
     gcp_bucket_name: str
     google_application_credentials: str = "/app/gcp-key.json"
+    gcs_upload_prefix: str = "uploaded"
     gcs_output_prefix: str = "output"
 
     # ── Google Gemini ─────────────────────────────────────────────────────────

@@ -53,6 +53,59 @@ class JobListResponse(BaseModel):
     total: int
 
 
+# ── Shorts Responses ─────────────────────────────────────────────────────────
+
+class ShortResponse(BaseModel):
+    job_id: str
+    user_id: str
+    status: JobStatus
+    input_url: str
+    prompt: str
+    result: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ShortListResponse(BaseModel):
+    shorts: List[ShortResponse]
+    total: int
+
+
+# ── Clips Responses ───────────────────────────────────────────────────────────
+
+class ClipItemResponse(BaseModel):
+    """One individual clip inside a clip_generator job result."""
+    clip_number: int
+    gcs_uri: str
+    download_url: str
+    start: float
+    end: float
+    duration: float
+    viral_hook_text: Optional[str] = None
+    tiktok_description: Optional[str] = None
+    instagram_description: Optional[str] = None
+    youtube_title: Optional[str] = None
+
+
+class ClipJobResponse(BaseModel):
+    """A clip_generator job with its resolved list of clips."""
+    job_id: str
+    user_id: str
+    status: JobStatus
+    input_url: str
+    prompt: str
+    total_clips: int
+    transcript: Optional[str] = None
+    clips: List[ClipItemResponse]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClipJobListResponse(BaseModel):
+    jobs: List[ClipJobResponse]
+    total: int
+
+
 # ── Processing Result Payloads ────────────────────────────────────────────────
 
 class ClipResult(BaseModel):

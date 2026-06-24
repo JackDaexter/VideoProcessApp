@@ -4,13 +4,14 @@ app/routers/clip_generator.py — POST /api/clip-generator endpoint.
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.auth import get_current_user
 from app.db.supabase import create_job
 from app.models.requests import ClipGeneratorRequest
 from app.models.responses import JobCreatedResponse, JobStatus, JobType
 from app.services.clip_service import run_clip_generator
+from app.storage.gcs import gcs_uri_belongs_to_user_upload
 
 router = APIRouter(prefix="/api", tags=["Clip Generator"])
 
@@ -37,6 +38,12 @@ async def clip_generator(
     - **prompt**: Natural language description of clips to extract
     - **options**: Optional configuration (max_clips, duration bounds)
     """
+    if not gcs_uri_belongs_to_user_upload(request.video_url, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="video_url must point to the current user's uploaded folder.",
+        )
+
     job = await create_job(
         user_id=user_id,
         job_type=JobType.CLIP_GENERATOR,
@@ -45,7 +52,7 @@ async def clip_generator(
         options=request.options.model_dump(),
     )
 
-    background_tasks.add_task(run_clip_generator, job["id"], request)
+    background_tasks.add_task(run_clip_generator, job["id"], user_id, request)
 
     return JobCreatedResponse(
         job_id=job["id"],

@@ -107,6 +107,63 @@ async def list_jobs(
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
+async def list_user_shorts(
+    user_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """List completed AI shorts for one user."""
+    client = await get_client()
+    response = (
+        await client.table("jobs")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("type", JobType.AI_SHORTS.value)
+        .eq("status", JobStatus.COMPLETED.value)
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return response.data
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
+async def list_user_clip_jobs(
+    user_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """List completed clip_generator jobs for one user (includes result.clips array)."""
+    client = await get_client()
+    response = (
+        await client.table("jobs")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("type", JobType.CLIP_GENERATOR.value)
+        .eq("status", JobStatus.COMPLETED.value)
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return response.data
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
+async def update_job_result(job_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Patch only the result column of a job row (e.g. after removing a single clip)."""
+    client = await get_client()
+    now = datetime.now(timezone.utc).isoformat()
+    response = (
+        await client.table("jobs")
+        .update({"result": result, "updated_at": now})
+        .eq("id", job_id)
+        .execute()
+    )
+    log.info("job_result_updated", job_id=job_id)
+    return response.data[0]
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
 async def update_job_status(
     job_id: str,
     status: JobStatus,
